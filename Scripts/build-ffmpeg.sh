@@ -6,9 +6,11 @@
 # clashes with another FFmpeg in the same app. Slices for tvOS, the tvOS
 # Simulator and macOS (for tests).
 # The framework and BUILD_INFO.txt are committed (ADR 0020), so run this only to
-# change them: a new FFmpeg release, decoder, slice or bridge change. With the
-# same Xcode a rebuild is byte-identical, so `--clean` followed by
-# `git status --short Vendor/FFmpeg` checks the committed framework.
+# change them: a new FFmpeg release, decoder, slice or bridge change. FFmpeg
+# records its configure flags in the binary, so they name no path of the build
+# machine: with the same Xcode a rebuild is byte-identical from any checkout,
+# and `--clean` followed by `git status --short Vendor/FFmpeg` checks the
+# committed framework.
 #
 # Usage: Scripts/build-ffmpeg.sh [--clean]
 set -euo pipefail
@@ -30,6 +32,10 @@ DECODERS="mp1,mp1float,mp2,mp2float"
 OUT="$PWD/Vendor/FFmpeg"
 WORK="$OUT/.work"
 SOURCE="$WORK/ffmpeg-${FFMPEG_VERSION}"
+# The prefix FFmpeg is configured with, and so records in the binary
+# (avcodec_configuration). Each slice installs under $WORK/install/<slice>
+# through DESTDIR, so no path of the build machine ends up in the framework.
+PREFIX="/spector-ffmpeg"
 FRAMEWORK="SpectorFFmpeg"
 BRIDGE_SOURCE="$PWD/Scripts/ffmpeg-bridge"
 
@@ -62,15 +68,19 @@ fetch_source() {
     tar -xf "$archive" -C "$WORK"
 }
 
+# Where a slice's FFmpeg is installed: DESTDIR plus the neutral prefix.
+install_dir() {
+    echo "$WORK/install/$1-$2$PREFIX"
+}
+
 configure_flags() {
     local arch="$1" sdk="$2" triple="$3"
-    local sysroot
-    sysroot="$(xcrun --sdk "$sdk" --show-sdk-path)"
     local flags=(
         --enable-cross-compile --target-os=darwin
         --arch="$([[ "$arch" == arm64 ]] && echo aarch64 || echo x86_64)"
-        --cc="$(xcrun --sdk "$sdk" -f clang)"
-        --sysroot="$sysroot"
+        # Through xcrun, which also supplies the SDK, so the flags FFmpeg
+        # records name no path of the Mac's Xcode.
+        --cc="xcrun --sdk $sdk clang"
         --extra-cflags="-target $triple"
         --extra-ldflags="-target $triple"
         # Licence: LGPL 2.1 or later only. Never add --enable-gpl,
@@ -100,16 +110,16 @@ check_licence() {
 
 build_slice() {
     local name="$1" arch="$2" sdk="$3" triple="$4"
-    local build="$WORK/build/$name-$arch" prefix="$WORK/install/$name-$arch"
-    if [[ -f "$prefix/lib/libavcodec.a" ]]; then return; fi
+    local build="$WORK/build/$name-$arch" destination="$WORK/install/$name-$arch"
+    if [[ -f "$(install_dir "$name" "$arch")/lib/libavcodec.a" ]]; then return; fi
     echo "::group::FFmpeg $FFMPEG_VERSION for $name $arch"
-    rm -rf "$build" "$prefix"
+    rm -rf "$build" "$destination"
     mkdir -p "$build"
     local flags=()
     while IFS= read -r flag; do flags+=("$flag"); done < <(configure_flags "$arch" "$sdk" "$triple")
-    (cd "$build" && "$SOURCE/configure" --prefix="$prefix" "${flags[@]}" > configure.log)
+    (cd "$build" && "$SOURCE/configure" --prefix="$PREFIX" "${flags[@]}" > configure.log)
     check_licence "$build/config.h"
-    make -C "$build" -j"$(sysctl -n hw.ncpu)" install > "$build/make.log"
+    make -C "$build" -j"$(sysctl -n hw.ncpu)" install DESTDIR="$destination" > "$build/make.log"
     echo "::endgroup::"
 }
 
@@ -125,7 +135,8 @@ install_name() {
 # that exports only spector_ffmpeg_*: FFmpeg's own symbols stay inside it.
 link_slice() {
     local name="$1" arch="$2" sdk="$3" triple="$4" platform="$5" output="$6"
-    local prefix="$WORK/install/$name-$arch" private
+    local prefix private
+    prefix="$(install_dir "$name" "$arch")"
     # The system libraries FFmpeg's static archives need (-lm, -pthread).
     private="$(sed -n 's/^Libs.private: //p' "$prefix/lib/pkgconfig/libavcodec.pc" "$prefix/lib/pkgconfig/libavutil.pc" | tr '\n' ' ')"
     mkdir -p "$(dirname "$output")"
@@ -222,8 +233,8 @@ check_exports() {
     fi
 }
 
-# xcodebuild lists an XCFramework's slices in no fixed order. Sorting them
-# keeps a rebuild byte-identical, so `git status` can check the framework.
+# xcodebuild lists an XCFramework's slices in no fixed order. Sorting them is
+# part of keeping a rebuild byte-identical, so `git status` can check it.
 sort_xcframework_libraries() {
     python3 -I - "$1" <<'EOF'
 import plistlib, sys

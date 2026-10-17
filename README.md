@@ -27,7 +27,7 @@ On a Mac with Xcode:
 Scripts/build-ffmpeg.sh --clean
 ```
 
-The result is in `Vendor/FFmpeg/SpectorFFmpeg.xcframework`. Built unmodified with the same Xcode, it matches the shipped framework except for FFmpeg's configuration string, which records the build directory. To use a modified FFmpeg, change the source the script builds (for example, point it at your own tree), rebuild, and replace `SpectorFFmpeg.framework` in the app bundle with the matching slice. Then re-sign the app for your device.
+The result is in `Vendor/FFmpeg/SpectorFFmpeg.xcframework`. From `engine-0.2.1` on, built unmodified with the Xcode named in `BUILD_INFO.txt`, it is byte-identical to the shipped framework from any directory. (`engine-0.2.0`'s framework differs only in FFmpeg's configuration string, which recorded the build directory.) To use a modified FFmpeg, change the source the script builds (for example, point it at your own tree), rebuild, and replace `SpectorFFmpeg.framework` in the app bundle with the matching slice. Then re-sign the app for your device.
 
 ## Terms for the bridge
 
@@ -35,4 +35,4 @@ The bridge is SPECTOR's own code, published here so that the LGPL's requirements
 
 ## Versions
 
-Each tag matches a SPECTOR Engine release: `engine-0.2.0` is the framework shipped with SPECTOR Engine 0.2.0.
+Each tag matches a SPECTOR Engine release: `engine-0.2.0` and `engine-0.2.1` are the frameworks shipped with SPECTOR Engine 0.2.0 and 0.2.1.

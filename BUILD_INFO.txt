@@ -7,8 +7,7 @@ Configure flags (tvOS arm64):
   --enable-cross-compile
   --target-os=darwin
   --arch=aarch64
-  --cc=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang
-  --sysroot=/Applications/Xcode.app/Contents/Developer/Platforms/AppleTVOS.platform/Developer/SDKs/AppleTVOS26.5.sdk
+  --cc=xcrun --sdk appletvos clang
   --extra-cflags=-target arm64-apple-tvos18.0
   --extra-ldflags=-target arm64-apple-tvos18.0
   --disable-everything
