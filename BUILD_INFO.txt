@@ -1,0 +1,29 @@
+FFmpeg 9.0.2 (libavcodec, libavutil; static, inside SpectorFFmpeg.framework)
+Source: https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
+SHA-256: 8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
+Decoders: mp1,mp1float,mp2,mp2float
+Bridge: Scripts/ffmpeg-bridge/SpectorFFmpeg.c, exports spector_ffmpeg_* only
+Configure flags (tvOS arm64):
+  --enable-cross-compile
+  --target-os=darwin
+  --arch=aarch64
+  --cc=/Applications/Xcode.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang
+  --sysroot=/Applications/Xcode.app/Contents/Developer/Platforms/AppleTVOS.platform/Developer/SDKs/AppleTVOS26.5.sdk
+  --extra-cflags=-target arm64-apple-tvos18.0
+  --extra-ldflags=-target arm64-apple-tvos18.0
+  --disable-everything
+  --enable-decoder=mp1,mp1float,mp2,mp2float
+  --disable-autodetect
+  --disable-network
+  --disable-programs
+  --disable-doc
+  --disable-avformat
+  --disable-avdevice
+  --disable-avfilter
+  --disable-swscale
+  --disable-swresample
+  --disable-debug
+  --enable-pic
+  --enable-static
+  --disable-shared
+Built with: Xcode 26.6 Build version 17F113

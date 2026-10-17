@@ -1,0 +1,38 @@
+# SPECTOR FFmpeg
+
+The source that SPECTOR's users need to rebuild and replace `SpectorFFmpeg.framework`, the FFmpeg component inside the SPECTOR app for Apple TV.
+
+`SpectorFFmpeg.framework` holds libavcodec and libavutil from [FFmpeg](https://ffmpeg.org/) 9.0.2, licensed under the GNU Lesser General Public License version 2.1 or later, linked statically together with a small C bridge (`Scripts/ffmpeg-bridge`). The bridge exports only `spector_ffmpeg_*` functions. The app links the framework dynamically. To meet the LGPL (section 6), this repository publishes the bridge's source and the build script, so you can rebuild the framework with a modified FFmpeg and put it in the app in place of the original.
+
+FFmpeg is a trademark of Fabrice Bellard, originator of the FFmpeg project.
+
+## Contents
+
+| Path | What it is |
+|---|---|
+| `Scripts/ffmpeg-bridge/SpectorFFmpeg.h`, `SpectorFFmpeg.c` | The bridge: the app's only entry points into FFmpeg |
+| `Scripts/build-ffmpeg.sh` | Downloads FFmpeg's source, checks its SHA-256, configures it LGPL-only, and builds `Vendor/FFmpeg/SpectorFFmpeg.xcframework` (tvOS, tvOS Simulator, macOS) |
+| `BUILD_INFO.txt` | The FFmpeg version, decoders and configure flags of the shipped framework |
+| `LICENSES/FFmpeg-LGPL-2.1.txt` | The GNU Lesser General Public License, version 2.1 |
+
+## FFmpeg's source
+
+<https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz>, SHA-256 `8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e`, built unmodified with the configure flags in `Scripts/build-ffmpeg.sh` and `BUILD_INFO.txt`.
+
+## Rebuilding
+
+On a Mac with Xcode:
+
+```sh
+Scripts/build-ffmpeg.sh --clean
+```
+
+The result is in `Vendor/FFmpeg/SpectorFFmpeg.xcframework`. Built unmodified with the same Xcode, it matches the shipped framework except for FFmpeg's configuration string, which records the build directory. To use a modified FFmpeg, change the source the script builds (for example, point it at your own tree), rebuild, and replace `SpectorFFmpeg.framework` in the app bundle with the matching slice. Then re-sign the app for your device.
+
+## Terms for the bridge
+
+The bridge is SPECTOR's own code, published here so that the LGPL's requirements can be met. You may modify it and rebuild it with FFmpeg, for your own use, to make and use a replacement `SpectorFFmpeg.framework` with SPECTOR. You may also reverse-engineer the framework to debug such modifications. FFmpeg's own code stays under the LGPL-2.1-or-later.
+
+## Versions
+
+Each tag matches a SPECTOR Engine release: `engine-0.2.0` is the framework shipped with SPECTOR Engine 0.2.0.
