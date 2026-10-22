@@ -4,13 +4,15 @@
 # an LGPL-only FFmpeg, libavcodec and libavutil, linked statically into it. It
 # exports only the bridge's spector_ffmpeg_* functions, so its FFmpeg never
 # clashes with another FFmpeg in the same app. Slices for tvOS, the tvOS
-# Simulator and macOS (for tests).
+# Simulator and macOS (for tests). Each slice carries its dSYM, so that crashes
+# inside the framework can be symbolicated (App Store Connect asks for it).
 # The framework and BUILD_INFO.txt are committed (ADR 0020), so run this only to
 # change them: a new FFmpeg release, decoder, slice or bridge change. FFmpeg
 # records its configure flags in the binary, so they name no path of the build
-# machine: with the same Xcode a rebuild is byte-identical from any checkout,
-# and `--clean` followed by `git status --short Vendor/FFmpeg` checks the
-# committed framework.
+# machine, and the debug information maps the checkout and Xcode to neutral
+# paths: with the same Xcode a rebuild is byte-identical from any checkout,
+# dSYMs included, and `--clean` followed by `git status --short Vendor/FFmpeg`
+# checks the committed framework.
 #
 # Usage: Scripts/build-ffmpeg.sh [--clean]
 set -euo pipefail
@@ -38,6 +40,17 @@ SOURCE="$WORK/ffmpeg-${FFMPEG_VERSION}"
 PREFIX="/spector-ffmpeg"
 FRAMEWORK="SpectorFFmpeg"
 BRIDGE_SOURCE="$PWD/Scripts/ffmpeg-bridge"
+
+# The debug information names the checkout as $DEBUG_ROOT and Xcode's developer
+# directory as its default location, wherever they are on the build machine.
+DEBUG_ROOT="/spector-ffmpeg-build"
+DEVELOPER="$(dirname "$(dirname "$(dirname "$(xcrun --find xcodebuild)")")")"
+DEBUG_PREFIX_MAPS=(
+    "-fdebug-prefix-map=$PWD=$DEBUG_ROOT"
+    "-fdebug-prefix-map=$DEVELOPER=/Applications/Xcode.app/Contents/Developer"
+)
+# Archive members and the linker's debug map record no modification times.
+export ZERO_AR_DATE=1
 
 # name  arch     sdk                target triple
 SLICES=(
@@ -90,7 +103,9 @@ configure_flags() {
         --disable-avformat --disable-avdevice --disable-avfilter
         --disable-swscale --disable-swresample
         # Static archives, linked into the framework with the bridge (ADR 0020).
-        --disable-debug --enable-pic --enable-static --disable-shared
+        # With debug information (FFmpeg's default -g), for the dSYMs; the
+        # framework's binary is stripped of it.
+        --enable-pic --enable-static --disable-shared
     )
     # The Mac has no nasm; the enabled decoders have no x86 assembly anyway.
     [[ "$arch" == x86_64 ]] && flags+=(--disable-x86asm)
@@ -117,9 +132,18 @@ build_slice() {
     mkdir -p "$build"
     local flags=()
     while IFS= read -r flag; do flags+=("$flag"); done < <(configure_flags "$arch" "$sdk" "$triple")
-    (cd "$build" && "$SOURCE/configure" --prefix="$PREFIX" "${flags[@]}" > configure.log)
-    check_licence "$build/config.h"
-    make -C "$build" -j"$(sysctl -n hw.ncpu)" install DESTDIR="$destination" > "$build/make.log"
+    # The prefix maps reach clang through the driver's override variable (the
+    # leading "#" keeps it quiet) instead of --extra-cflags, which FFmpeg would
+    # record in the binary with the build machine's paths.
+    local overrides="#"
+    for map in "${DEBUG_PREFIX_MAPS[@]}"; do overrides+=" +$map"; done
+    (
+        export CCC_OVERRIDE_OPTIONS="$overrides"
+        cd "$build"
+        "$SOURCE/configure" --prefix="$PREFIX" "${flags[@]}" > configure.log
+        check_licence "$build/config.h"
+        make -C "$build" -j"$(sysctl -n hw.ncpu)" install DESTDIR="$destination" > "$build/make.log"
+    )
     echo "::endgroup::"
 }
 
@@ -131,24 +155,82 @@ install_name() {
     fi
 }
 
+# FFmpeg's archives hold members with the same name from different directories
+# (libavutil's cpu.o and aarch64/cpu.o). With ZERO_AR_DATE dsymutil cannot tell
+# them apart and drops one, so the slice is linked against copies of the
+# archives whose members are named by their path in the build tree. Prints the
+# archive's path.
+unique_archive() {
+    local name="$1" arch="$2" library="$3"
+    local build="$WORK/build/$name-$arch" objects="$WORK/objects/$name-$arch/$library"
+    local archive="$objects.a" members=() object relative
+    rm -rf "$objects" "$archive"
+    mkdir -p "$objects"
+    while IFS= read -r object; do
+        relative="${object#"$build/$library/"}"
+        cp "$object" "$objects/${relative//\//_}"
+        members+=("$objects/${relative//\//_}")
+    done < <(find "$build/$library" -name '*.o' | LC_ALL=C sort)
+    # The copies must be exactly the installed archive's members.
+    local installed
+    installed="$(ar t "$(install_dir "$name" "$arch")/lib/$library.a" | grep -cv '^__\.SYMDEF')"
+    if [[ "$installed" != "${#members[@]}" ]]; then
+        echo "error: $library for $name $arch has $installed members, the build tree ${#members[@]} objects" >&2
+        exit 1
+    fi
+    if [[ -n "$(printf '%s\n' "${members[@]##*/}" | sort | uniq -d)" ]]; then
+        echo "error: $library for $name $arch still has duplicate member names" >&2
+        exit 1
+    fi
+    ar rcs "$archive" "${members[@]}"
+    echo "$archive"
+}
+
 # Links the bridge and FFmpeg's archives for one slice into a dynamic library
-# that exports only spector_ffmpeg_*: FFmpeg's own symbols stay inside it.
+# that exports only spector_ffmpeg_*: FFmpeg's own symbols stay inside it. The
+# library keeps its debug map until make_framework has made the dSYM.
 link_slice() {
     local name="$1" arch="$2" sdk="$3" triple="$4" platform="$5" output="$6"
-    local prefix private
+    local prefix private clang sysroot bridge_object avcodec avutil
     prefix="$(install_dir "$name" "$arch")"
+    avcodec="$(unique_archive "$name" "$arch" libavcodec)"
+    avutil="$(unique_archive "$name" "$arch" libavutil)"
     # The system libraries FFmpeg's static archives need (-lm, -pthread).
     private="$(sed -n 's/^Libs.private: //p' "$prefix/lib/pkgconfig/libavcodec.pc" "$prefix/lib/pkgconfig/libavutil.pc" | tr '\n' ' ')"
-    mkdir -p "$(dirname "$output")"
+    clang="$(xcrun --sdk "$sdk" -f clang)"
+    sysroot="$(xcrun --sdk "$sdk" --show-sdk-path)"
+    # Compiled on its own, so that the debug map points at an object file that
+    # still exists when dsymutil reads it.
+    bridge_object="$WORK/bridge/$name-$arch/$FRAMEWORK.o"
+    mkdir -p "$(dirname "$output")" "$(dirname "$bridge_object")"
+    "$clang" -target "$triple" -isysroot "$sysroot" \
+        -c -g -O2 -Wall -Werror -fvisibility=hidden "${DEBUG_PREFIX_MAPS[@]}" \
+        -I "$prefix/include" "$BRIDGE_SOURCE/$FRAMEWORK.c" -o "$bridge_object"
+    # The debug map names its object files relative to the checkout
+    # (-oso_prefix); dsymutil finds them with --oso-prepend-path.
     # shellcheck disable=SC2086
-    "$(xcrun --sdk "$sdk" -f clang)" -target "$triple" -isysroot "$(xcrun --sdk "$sdk" --show-sdk-path)" \
-        -dynamiclib -O2 -Wall -Werror -fvisibility=hidden \
-        -I "$prefix/include" "$BRIDGE_SOURCE/$FRAMEWORK.c" \
-        "$prefix/lib/libavcodec.a" "$prefix/lib/libavutil.a" $private \
+    "$clang" -target "$triple" -isysroot "$sysroot" -dynamiclib \
+        "$bridge_object" "$avcodec" "$avutil" $private \
         -Wl,-exported_symbol,'_spector_ffmpeg_*' -Wl,-dead_strip \
+        -Wl,-oso_prefix,"$PWD/" \
         -install_name "$(install_name "$platform")" \
         -compatibility_version 1 -current_version "$FFMPEG_VERSION" \
         -o "$output"
+}
+
+# Writes the dSYM for a framework's binary, then strips its debug map. The
+# dSYM matches the binary by UUID, which stripping keeps.
+make_dsym() {
+    local binary="$1" dsym="$2" log
+    rm -rf "$dsym"
+    # Relative to the checkout, because the dSYM records the binary's path.
+    log="$(dsymutil "${binary#"$PWD/"}" --oso-prepend-path="$PWD" -o "$dsym" 2>&1)"
+    if [[ -n "$log" ]]; then
+        echo "error: dsymutil reported problems for $binary:" >&2
+        echo "$log" | head >&2
+        exit 1
+    fi
+    strip -S "$binary"
 }
 
 info_plist() {
@@ -208,6 +290,7 @@ make_framework() {
         mkdir -p "$contents"
     fi
     lipo -create "${slices[@]}" -output "$contents/$FRAMEWORK"
+    make_dsym "$contents/$FRAMEWORK" "$WORK/dsyms/$platform/$FRAMEWORK.framework.dSYM"
     mkdir -p "$contents/Headers" "$contents/Modules"
     cp "$BRIDGE_SOURCE/$FRAMEWORK.h" "$contents/Headers/"
     module_map > "$contents/Modules/module.modulemap"
@@ -229,6 +312,18 @@ check_exports() {
     if [[ -n "$unexpected" ]]; then
         echo "error: $binary exports more than spector_ffmpeg_*:" >&2
         echo "$unexpected" | head >&2
+        exit 1
+    fi
+}
+
+# Fails the build if the framework or a dSYM names the checkout's path, which
+# would leak the build machine's paths and break the byte-identical rebuild.
+check_no_build_paths() {
+    local found
+    found="$(grep -rlF "$PWD" "$1" || true)"
+    if [[ -n "$found" ]]; then
+        echo "error: the build directory's path is recorded in:" >&2
+        echo "$found" >&2
         exit 1
     fi
 }
@@ -256,10 +351,12 @@ for platform in "${PLATFORMS[@]}"; do
     make_framework "$platform"
     check_exports "$WORK/frameworks/$platform/$FRAMEWORK.framework/$FRAMEWORK"
     arguments+=(-framework "$WORK/frameworks/$platform/$FRAMEWORK.framework")
+    arguments+=(-debug-symbols "$WORK/dsyms/$platform/$FRAMEWORK.framework.dSYM")
 done
 rm -rf "$OUT"/*.xcframework
 xcodebuild -create-xcframework "${arguments[@]}" -output "$OUT/$FRAMEWORK.xcframework" > /dev/null
 sort_xcframework_libraries "$OUT/$FRAMEWORK.xcframework/Info.plist"
+check_no_build_paths "$OUT/$FRAMEWORK.xcframework"
 
 cat > "$OUT/BUILD_INFO.txt" <<EOF
 FFmpeg $FFMPEG_VERSION (libavcodec, libavutil; static, inside $FRAMEWORK.framework)
@@ -267,6 +364,7 @@ Source: $FFMPEG_URL
 SHA-256: $FFMPEG_SHA256
 Decoders: $DECODERS
 Bridge: Scripts/ffmpeg-bridge/$FRAMEWORK.c, exports spector_ffmpeg_* only
+Debug symbols: one dSYM per slice (dSYMs/$FRAMEWORK.framework.dSYM), paths under $DEBUG_ROOT
 Configure flags (tvOS arm64):
 $(configure_flags arm64 appletvos "arm64-apple-tvos${TVOS_MIN}" | sed 's/^/  /')
 Built with: $(xcodebuild -version | paste -sd ' ' -)
