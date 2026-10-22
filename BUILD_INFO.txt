@@ -3,6 +3,7 @@ Source: https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
 SHA-256: 8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
 Decoders: mp1,mp1float,mp2,mp2float
 Bridge: Scripts/ffmpeg-bridge/SpectorFFmpeg.c, exports spector_ffmpeg_* only
+Debug symbols: one dSYM per slice (dSYMs/SpectorFFmpeg.framework.dSYM), paths under /spector-ffmpeg-build
 Configure flags (tvOS arm64):
   --enable-cross-compile
   --target-os=darwin
@@ -21,8 +22,7 @@ Configure flags (tvOS arm64):
   --disable-avfilter
   --disable-swscale
   --disable-swresample
-  --disable-debug
   --enable-pic
   --enable-static
   --disable-shared
-Built with: Xcode 26.6 Build version 17F113
+Built with: Xcode 27.1 Build version 27A9275
