@@ -39,4 +39,5 @@ Each tag matches the SPECTOR Engine release that first shipped its framework:
 
 - `engine-0.2.0`: SPECTOR Engine 0.2.0.
 - `engine-0.2.1`: SPECTOR Engine 0.2.1 to 0.5.1, which shipped the same framework.
-- `engine-0.6.0`: SPECTOR Engine 0.6.0 on. The framework was rebuilt with Xcode 27.1 and carries dSYMs. FFmpeg, its configuration and the bridge are unchanged.
+- `engine-0.6.0`: SPECTOR Engine 0.6.0 and 0.7.0. The framework was rebuilt with Xcode 27.1 and carries dSYMs. FFmpeg, its configuration and the bridge are unchanged.
+- `engine-0.8.0`: SPECTOR Engine 0.8.0 on. Adds FFmpeg's DTS decoder and parser (`dca`); the bridge passes a codec's extradata, converts 32-bit samples and reports the channel layout it decodes. FFmpeg 9.0.2 and Xcode 27.1 as before.
