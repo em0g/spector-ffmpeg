@@ -29,7 +29,10 @@ BUNDLE_ID="app.spector.engine.ffmpeg"
 
 # Every decoder is listed explicitly, and each needs a licensing check before it
 # is added here (ADR 0017).
-DECODERS="mp1,mp1float,mp2,mp2float"
+DECODERS="mp1,mp1float,mp2,mp2float,dca"
+# Parsers decode nothing: the bridge asks the `dca` parser for a DTS frame's
+# profile, so that it refuses DTS Express before decoding it (ADR 0034).
+PARSERS="dca"
 
 OUT="$PWD/Vendor/FFmpeg"
 WORK="$OUT/.work"
@@ -98,7 +101,7 @@ configure_flags() {
         --extra-ldflags="-target $triple"
         # Licence: LGPL 2.1 or later only. Never add --enable-gpl,
         # --enable-nonfree or --enable-version3 (ADR 0010, ADR 0017).
-        --disable-everything --enable-decoder="$DECODERS"
+        --disable-everything --enable-decoder="$DECODERS" --enable-parser="$PARSERS"
         --disable-autodetect --disable-network --disable-programs --disable-doc
         --disable-avformat --disable-avdevice --disable-avfilter
         --disable-swscale --disable-swresample
@@ -363,6 +366,7 @@ FFmpeg $FFMPEG_VERSION (libavcodec, libavutil; static, inside $FRAMEWORK.framewo
 Source: $FFMPEG_URL
 SHA-256: $FFMPEG_SHA256
 Decoders: $DECODERS
+Parsers: $PARSERS
 Bridge: Scripts/ffmpeg-bridge/$FRAMEWORK.c, exports spector_ffmpeg_* only
 Debug symbols: one dSYM per slice (dSYMs/$FRAMEWORK.framework.dSYM), paths under $DEBUG_ROOT
 Configure flags (tvOS arm64):
