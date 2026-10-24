@@ -3,8 +3,8 @@
 # one dynamic framework holding the engine's bridge (Scripts/ffmpeg-bridge) and
 # an LGPL-only FFmpeg, libavcodec and libavutil, linked statically into it. It
 # exports only the bridge's spector_ffmpeg_* functions, so its FFmpeg never
-# clashes with another FFmpeg in the same app. Slices for tvOS, the tvOS
-# Simulator and macOS (for tests). Each slice carries its dSYM, so that crashes
+# clashes with another FFmpeg in the same app. Slices for tvOS, iOS, their
+# simulators and macOS (for tests). Each slice carries its dSYM, so that crashes
 # inside the framework can be symbolicated (App Store Connect asks for it).
 # The framework and BUILD_INFO.txt are committed (ADR 0020), so run this only to
 # change them: a new FFmpeg release, decoder, slice or bridge change. FFmpeg
@@ -24,6 +24,7 @@ FFMPEG_URL="https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz"
 # Matches the hash pinned independently by Homebrew's ffmpeg formula (2026-10-16).
 FFMPEG_SHA256="8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e"
 TVOS_MIN="18.0"
+IOS_MIN="18.0"
 MACOS_MIN="15.0"
 BUNDLE_ID="app.spector.engine.ffmpeg"
 
@@ -60,10 +61,13 @@ SLICES=(
     "tvos         arm64  appletvos         arm64-apple-tvos${TVOS_MIN}"
     "tvsimulator  arm64  appletvsimulator  arm64-apple-tvos${TVOS_MIN}-simulator"
     "tvsimulator  x86_64 appletvsimulator  x86_64-apple-tvos${TVOS_MIN}-simulator"
+    "ios          arm64  iphoneos          arm64-apple-ios${IOS_MIN}"
+    "iossimulator arm64  iphonesimulator   arm64-apple-ios${IOS_MIN}-simulator"
+    "iossimulator x86_64 iphonesimulator   x86_64-apple-ios${IOS_MIN}-simulator"
     "macos        arm64  macosx            arm64-apple-macos${MACOS_MIN}"
     "macos        x86_64 macosx            x86_64-apple-macos${MACOS_MIN}"
 )
-PLATFORMS=(tvos tvsimulator macos)
+PLATFORMS=(tvos tvsimulator ios iossimulator macos)
 
 if [[ "${1:-}" == "--clean" ]]; then
     rm -rf "$WORK" "$OUT"/*.xcframework "$OUT/BUILD_INFO.txt"
@@ -242,6 +246,8 @@ info_plist() {
     case "$platform" in
         tvos | tvsimulator)
             minimum="<key>MinimumOSVersion</key><string>$TVOS_MIN</string>" ;;
+        ios | iossimulator)
+            minimum="<key>MinimumOSVersion</key><string>$IOS_MIN</string>" ;;
         macos)
             minimum="<key>LSMinimumSystemVersion</key><string>$MACOS_MIN</string>" ;;
     esac
@@ -273,7 +279,8 @@ framework module $FRAMEWORK {
 EOF
 }
 
-# Builds <platform>/SpectorFFmpeg.framework: shallow on tvOS, versioned on macOS.
+# Builds <platform>/SpectorFFmpeg.framework: shallow on tvOS and iOS, versioned
+# on macOS.
 make_framework() {
     local platform="$1"
     local slices=()
