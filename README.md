@@ -11,7 +11,7 @@ FFmpeg is a trademark of Fabrice Bellard, originator of the FFmpeg project.
 | Path | What it is |
 |---|---|
 | `Scripts/ffmpeg-bridge/SpectorFFmpeg.h`, `SpectorFFmpeg.c` | The bridge: the app's only entry points into FFmpeg |
-| `Scripts/build-ffmpeg.sh` | Downloads FFmpeg's source, checks its SHA-256, configures it LGPL-only, and builds `Vendor/FFmpeg/SpectorFFmpeg.xcframework` (tvOS, tvOS Simulator, macOS) |
+| `Scripts/build-ffmpeg.sh` | Downloads FFmpeg's source, checks its SHA-256, configures it LGPL-only, and builds `Vendor/FFmpeg/SpectorFFmpeg.xcframework` (tvOS, iOS, their simulators, macOS) |
 | `BUILD_INFO.txt` | The FFmpeg version, decoders and configure flags of the shipped framework |
 | `LICENSES/FFmpeg-LGPL-2.1.txt` | The GNU Lesser General Public License, version 2.1 |
 
@@ -40,4 +40,5 @@ Each tag matches the SPECTOR Engine release that first shipped its framework:
 - `engine-0.2.0`: SPECTOR Engine 0.2.0.
 - `engine-0.2.1`: SPECTOR Engine 0.2.1 to 0.5.1, which shipped the same framework.
 - `engine-0.6.0`: SPECTOR Engine 0.6.0 and 0.7.0. The framework was rebuilt with Xcode 27.1 and carries dSYMs. FFmpeg, its configuration and the bridge are unchanged.
-- `engine-0.8.0`: SPECTOR Engine 0.8.0 on. Adds FFmpeg's DTS decoder and parser (`dca`); the bridge passes a codec's extradata, converts 32-bit samples and reports the channel layout it decodes. FFmpeg 9.0.2 and Xcode 27.1 as before.
+- `engine-0.8.0`: SPECTOR Engine 0.8.0 and 0.8.1. Adds FFmpeg's DTS decoder and parser (`dca`); the bridge passes a codec's extradata, converts 32-bit samples and reports the channel layout it decodes. FFmpeg 9.0.2 and Xcode 27.1 as before.
+- `engine-0.8.2`: SPECTOR Engine 0.8.2 on. Adds iOS and iOS Simulator slices, for the iPhone app. FFmpeg, its configuration, the bridge and the tvOS and macOS slices are unchanged from `engine-0.8.0`.
