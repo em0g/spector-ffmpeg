@@ -2,7 +2,7 @@
 
 The source that SPECTOR's users need to rebuild and replace `SpectorFFmpeg.framework`, the FFmpeg component inside the SPECTOR app for Apple TV.
 
-`SpectorFFmpeg.framework` holds libavcodec and libavutil from [FFmpeg](https://ffmpeg.org/) 9.0.2, licensed under the GNU Lesser General Public License version 2.1 or later, linked statically together with a small C bridge (`Scripts/ffmpeg-bridge`). The bridge exports only `spector_ffmpeg_*` functions. The app links the framework dynamically. To meet the LGPL (section 6), this repository publishes the bridge's source and the build script, so you can rebuild the framework with a modified FFmpeg and put it in the app in place of the original.
+`SpectorFFmpeg.framework` holds libavcodec, libswresample and libavutil from [FFmpeg](https://ffmpeg.org/) 9.0.2, licensed under the GNU Lesser General Public License version 2.1 or later, linked statically together with a small C bridge (`Scripts/ffmpeg-bridge`). The bridge exports only `spector_ffmpeg_*` functions. The app links the framework dynamically. To meet the LGPL (section 6), this repository publishes the bridge's source and the build script, so you can rebuild the framework with a modified FFmpeg and put it in the app in place of the original.
 
 FFmpeg is a trademark of Fabrice Bellard, originator of the FFmpeg project.
 
@@ -41,4 +41,5 @@ Each tag matches the SPECTOR Engine release that first shipped its framework:
 - `engine-0.2.1`: SPECTOR Engine 0.2.1 to 0.5.1, which shipped the same framework.
 - `engine-0.6.0`: SPECTOR Engine 0.6.0 and 0.7.0. The framework was rebuilt with Xcode 27.1 and carries dSYMs. FFmpeg, its configuration and the bridge are unchanged.
 - `engine-0.8.0`: SPECTOR Engine 0.8.0 and 0.8.1. Adds FFmpeg's DTS decoder and parser (`dca`); the bridge passes a codec's extradata, converts 32-bit samples and reports the channel layout it decodes. FFmpeg 9.0.2 and Xcode 27.1 as before.
-- `engine-0.8.2`: SPECTOR Engine 0.8.2 on. Adds iOS and iOS Simulator slices, for the iPhone app. FFmpeg, its configuration, the bridge and the tvOS and macOS slices are unchanged from `engine-0.8.0`.
+- `engine-0.8.2`: SPECTOR Engine 0.8.2 to 0.15.0. Adds iOS and iOS Simulator slices, for the iPhone app. FFmpeg, its configuration, the bridge and the tvOS and macOS slices are unchanged from `engine-0.8.0`.
+- `engine-0.16.0`: SPECTOR Engine 0.16.0 on. Adds FFmpeg's Dolby TrueHD (`truehd`), Vorbis (`vorbis`) and Opus (`opus`) decoders, and libswresample, which the Opus decoder needs; the bridge holds TrueHD's access units back until a major sync, takes Vorbis's and Opus's headers as extradata, and decodes Opus's pre-skip rather than dropping it. FFmpeg 9.0.2 and Xcode 27.1 as before.

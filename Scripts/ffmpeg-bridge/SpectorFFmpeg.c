@@ -48,6 +48,10 @@ struct SpectorFFmpegAudioDecoder {
     AVCodecContext *parser_context;
     // Set once the stream turned out to be audio the engine does not decode.
     int refused;
+    // TrueHD only: set until the first major sync after the start or a
+    // flush. The decoder cannot decode an access unit before it, and logs a
+    // warning for each, so they are not sent.
+    int awaits_major_sync;
 };
 
 const char *spector_ffmpeg_license(void) { return avcodec_license(); }
@@ -87,6 +91,9 @@ SpectorFFmpegAudioDecoder *spector_ffmpeg_audio_decoder_create(
     case SpectorFFmpegCodecMP1: id = AV_CODEC_ID_MP1; break;
     case SpectorFFmpegCodecMP2: id = AV_CODEC_ID_MP2; break;
     case SpectorFFmpegCodecDTS: id = AV_CODEC_ID_DTS; break;
+    case SpectorFFmpegCodecTrueHD: id = AV_CODEC_ID_TRUEHD; break;
+    case SpectorFFmpegCodecVorbis: id = AV_CODEC_ID_VORBIS; break;
+    case SpectorFFmpegCodecOpus: id = AV_CODEC_ID_OPUS; break;
     default: return NULL;
     }
     if (extradata_size < 0 || (extradata_size > 0 && extradata == NULL)) return NULL;
@@ -99,6 +106,12 @@ SpectorFFmpegAudioDecoder *spector_ffmpeg_audio_decoder_create(
     result->frame = av_frame_alloc();
     // Without the parser DTS Express could not be refused, so DTS is not
     // decoded at all.
+    // FFmpeg would drop Opus's pre-skip (from its OpusHead) from the first
+    // output; the engine places it before the clock's start itself
+    // (Matroska's CodecDelay), as it does for Apple's Opus decoder, so every
+    // sample is decoded. (Vorbis keeps FFmpeg's skip: its first packet's
+    // samples, which only overlap the next block, are dropped.)
+    if (result->context != NULL && id == AV_CODEC_ID_OPUS) result->context->flags2 |= AV_CODEC_FLAG2_SKIP_MANUAL;
     if (result->context == NULL || result->packet == NULL || result->frame == NULL
         || set_extradata(result->context, extradata, extradata_size) != 0
         || (id == AV_CODEC_ID_DTS && open_dts_parser(result) != 0)
@@ -106,6 +119,7 @@ SpectorFFmpegAudioDecoder *spector_ffmpeg_audio_decoder_create(
         spector_ffmpeg_audio_decoder_free(result);
         return NULL;
     }
+    result->awaits_major_sync = id == AV_CODEC_ID_TRUEHD;
     return result;
 }
 
@@ -133,8 +147,33 @@ static int is_dts_express(SpectorFFmpegAudioDecoder *decoder, const AVPacket *pa
     return decoder->parser_context->profile == AV_PROFILE_DTS_EXPRESS;
 }
 
+// The offset of the first TrueHD access unit in `data` that starts with a
+// major sync, walking the units by their lengths; -1 if none does.
+static int32_t first_major_sync(const uint8_t *data, int32_t size) {
+    int32_t offset = 0;
+    while (size - offset >= 8) {
+        int32_t length = ((data[offset] & 0x0F) << 8 | data[offset + 1]) * 2;
+        if (length < 4 || length > size - offset) return -1;
+        // The sync word of TrueHD (0xBA) or MLP (0xBB), as FFmpeg reads it.
+        uint32_t sync = (uint32_t)data[offset + 4] << 24 | (uint32_t)data[offset + 5] << 16
+                        | (uint32_t)data[offset + 6] << 8 | data[offset + 7];
+        if ((sync & 0xFFFFFFFE) == 0xF8726FBA) return offset;
+        offset += length;
+    }
+    return -1;
+}
+
 int spector_ffmpeg_audio_decoder_send(SpectorFFmpegAudioDecoder *decoder, const uint8_t *data, int32_t size) {
     if (decoder->refused) return SPECTOR_FFMPEG_ERROR_REFUSED;
+    if (decoder->awaits_major_sync) {
+        int32_t start = first_major_sync(data, size);
+        // Nothing to decode yet: as if the decoder took the packet and made
+        // nothing of it.
+        if (start < 0) return 0;
+        decoder->awaits_major_sync = 0;
+        data += start;
+        size -= start;
+    }
     int status = av_new_packet(decoder->packet, size);
     if (status != 0) return status;
     memcpy(decoder->packet->data, data, (size_t)size);
@@ -223,4 +262,5 @@ int spector_ffmpeg_audio_decoder_receive(SpectorFFmpegAudioDecoder *decoder, Spe
 
 void spector_ffmpeg_audio_decoder_flush(SpectorFFmpegAudioDecoder *decoder) {
     avcodec_flush_buffers(decoder->context);
+    decoder->awaits_major_sync = decoder->context->codec_id == AV_CODEC_ID_TRUEHD;
 }

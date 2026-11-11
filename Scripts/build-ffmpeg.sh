@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds Vendor/FFmpeg/SpectorFFmpeg.xcframework (ADR 0010, ADR 0017, ADR 0020):
 # one dynamic framework holding the engine's bridge (Scripts/ffmpeg-bridge) and
-# an LGPL-only FFmpeg, libavcodec and libavutil, linked statically into it. It
+# an LGPL-only FFmpeg, libavcodec, libswresample and libavutil, linked
+# statically into it. It
 # exports only the bridge's spector_ffmpeg_* functions, so its FFmpeg never
 # clashes with another FFmpeg in the same app. Slices for tvOS, iOS, their
 # simulators and macOS (for tests). Each slice carries its dSYM, so that crashes
@@ -29,8 +30,11 @@ MACOS_MIN="15.0"
 BUNDLE_ID="app.spector.engine.ffmpeg"
 
 # Every decoder is listed explicitly, and each needs a licensing check before it
-# is added here (ADR 0017).
-DECODERS="mp1,mp1float,mp2,mp2float,dca"
+# is added here (ADR 0017). `truehd` is Dolby TrueHD (ADR 0034); its sibling
+# `mlp`, for DVD-Audio's MLP, is left out: no container the engine reads
+# carries it. `vorbis` is Vorbis, which tvOS lacks (ADR 0034). `opus` is for
+# Opus with more than two channels, which the Apple TV refuses (ADR 0061).
+DECODERS="mp1,mp1float,mp2,mp2float,dca,truehd,vorbis,opus"
 # Parsers decode nothing: the bridge asks the `dca` parser for a DTS frame's
 # profile, so that it refuses DTS Express before decoding it (ADR 0034).
 PARSERS="dca"
@@ -107,8 +111,9 @@ configure_flags() {
         # --enable-nonfree or --enable-version3 (ADR 0010, ADR 0017).
         --disable-everything --enable-decoder="$DECODERS" --enable-parser="$PARSERS"
         --disable-autodetect --disable-network --disable-programs --disable-doc
-        --disable-avformat --disable-avdevice --disable-avfilter
-        --disable-swscale --disable-swresample
+        --disable-avformat --disable-avdevice --disable-avfilter --disable-swscale
+        # libswresample stays: the opus decoder resamples SILK's 8 to 16 kHz
+        # to 48 kHz with it (ADR 0061). The bridge calls nothing in it.
         # Static archives, linked into the framework with the bridge (ADR 0020).
         # With debug information (FFmpeg's default -g), for the dSYMs; the
         # framework's binary is stripped of it.
@@ -198,12 +203,14 @@ unique_archive() {
 # library keeps its debug map until make_framework has made the dSYM.
 link_slice() {
     local name="$1" arch="$2" sdk="$3" triple="$4" platform="$5" output="$6"
-    local prefix private clang sysroot bridge_object avcodec avutil
+    local prefix private clang sysroot bridge_object avcodec swresample avutil
     prefix="$(install_dir "$name" "$arch")"
     avcodec="$(unique_archive "$name" "$arch" libavcodec)"
+    swresample="$(unique_archive "$name" "$arch" libswresample)"
     avutil="$(unique_archive "$name" "$arch" libavutil)"
     # The system libraries FFmpeg's static archives need (-lm, -pthread).
-    private="$(sed -n 's/^Libs.private: //p' "$prefix/lib/pkgconfig/libavcodec.pc" "$prefix/lib/pkgconfig/libavutil.pc" | tr '\n' ' ')"
+    private="$(sed -n 's/^Libs.private: //p' "$prefix/lib/pkgconfig/libavcodec.pc" \
+        "$prefix/lib/pkgconfig/libswresample.pc" "$prefix/lib/pkgconfig/libavutil.pc" | tr '\n' ' ')"
     clang="$(xcrun --sdk "$sdk" -f clang)"
     sysroot="$(xcrun --sdk "$sdk" --show-sdk-path)"
     # Compiled on its own, so that the debug map points at an object file that
@@ -217,7 +224,7 @@ link_slice() {
     # (-oso_prefix); dsymutil finds them with --oso-prepend-path.
     # shellcheck disable=SC2086
     "$clang" -target "$triple" -isysroot "$sysroot" -dynamiclib \
-        "$bridge_object" "$avcodec" "$avutil" $private \
+        "$bridge_object" "$avcodec" "$swresample" "$avutil" $private \
         -Wl,-exported_symbol,'_spector_ffmpeg_*' -Wl,-dead_strip \
         -Wl,-oso_prefix,"$PWD/" \
         -install_name "$(install_name "$platform")" \
@@ -369,7 +376,7 @@ sort_xcframework_libraries "$OUT/$FRAMEWORK.xcframework/Info.plist"
 check_no_build_paths "$OUT/$FRAMEWORK.xcframework"
 
 cat > "$OUT/BUILD_INFO.txt" <<EOF
-FFmpeg $FFMPEG_VERSION (libavcodec, libavutil; static, inside $FRAMEWORK.framework)
+FFmpeg $FFMPEG_VERSION (libavcodec, libswresample, libavutil; static, inside $FRAMEWORK.framework)
 Source: $FFMPEG_URL
 SHA-256: $FFMPEG_SHA256
 Decoders: $DECODERS

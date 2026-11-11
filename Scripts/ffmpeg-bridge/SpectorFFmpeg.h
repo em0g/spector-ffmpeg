@@ -2,8 +2,8 @@
 #define SPECTOR_FFMPEG_H
 
 // The engine's only entry points into FFmpeg (ADR 0017, ADR 0020).
-// Scripts/build-ffmpeg.sh links this bridge and FFmpeg's static libavcodec and
-// libavutil into SpectorFFmpeg.framework, which exports only these functions,
+// Scripts/build-ffmpeg.sh links this bridge and FFmpeg's static libavcodec,
+// libswresample and libavutil into SpectorFFmpeg.framework, which exports only these functions,
 // so its FFmpeg never clashes with another FFmpeg in the same app (such as
 // AetherEngine's). The header includes none of FFmpeg's headers, so clients
 // never load FFmpeg's modules.
@@ -25,6 +25,26 @@ typedef enum {
     /// Resolution, Master Audio). DTS Express is refused
     /// (`SPECTOR_FFMPEG_ERROR_REFUSED`, ADR 0034).
     SpectorFFmpegCodecDTS = 3,
+    /// Dolby TrueHD: one access unit, or several in a row, per packet. Up to
+    /// eight channels, from the first substreams; an Atmos stream's object
+    /// substream is not decoded, so its bed plays (ADR 0034). Access units
+    /// before the stream's first major sync, and after a flush until the
+    /// next one, decode to nothing: the decoder could not decode them, so
+    /// the bridge does not send them.
+    SpectorFFmpegCodecTrueHD = 4,
+    /// Vorbis: needs the stream's three headers as `extradata`, laced as Xiph
+    /// laces them (Matroska's CodecPrivate) or each after a 16-bit length.
+    /// The first packet after the start or a flush decodes to nothing: its
+    /// block only overlaps the next one's.
+    SpectorFFmpegCodecVorbis = 5,
+    /// Opus: needs the stream's `OpusHead` as `extradata` (Matroska's
+    /// CodecPrivate), whose channel mapping table places up to eight channels
+    /// (mapping family 1). Packets of several streams are as RFC 7845 joins
+    /// them. The engine sends it only Opus of more than two channels, which
+    /// the Apple TV's decoder refuses (ADR 0061). The pre-skip is decoded,
+    /// not dropped, as Apple's Opus decoder decodes it: the engine places it
+    /// before the clock's start.
+    SpectorFFmpegCodecOpus = 6,
 } SpectorFFmpegCodec;
 
 /// `spector_ffmpeg_audio_decoder_receive` result for a sample format the
