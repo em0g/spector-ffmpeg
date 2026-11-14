@@ -34,7 +34,9 @@ BUNDLE_ID="app.spector.engine.ffmpeg"
 # `mlp`, for DVD-Audio's MLP, is left out: no container the engine reads
 # carries it. `vorbis` is Vorbis, which tvOS lacks (ADR 0034). `opus` is for
 # Opus with more than two channels, which the Apple TV refuses (ADR 0061).
-DECODERS="mp1,mp1float,mp2,mp2float,dca,truehd,vorbis,opus"
+# `mpeg1video` and `mpeg2video` are MPEG-1 and MPEG-2 video, which tvOS lacks:
+# the engine's first video decoded in software (ADR 0034, ADR 0068).
+DECODERS="mp1,mp1float,mp2,mp2float,dca,truehd,vorbis,opus,mpeg1video,mpeg2video"
 # Parsers decode nothing: the bridge asks the `dca` parser for a DTS frame's
 # profile, so that it refuses DTS Express before decoding it (ADR 0034).
 PARSERS="dca"

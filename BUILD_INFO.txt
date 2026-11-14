@@ -1,7 +1,7 @@
 FFmpeg 9.0.2 (libavcodec, libswresample, libavutil; static, inside SpectorFFmpeg.framework)
 Source: https://ffmpeg.org/releases/ffmpeg-9.0.2.tar.xz
 SHA-256: 8c3850283eb25fa026482078a04051e0be17347b09ef81a0849bec15a96e002e
-Decoders: mp1,mp1float,mp2,mp2float,dca,truehd,vorbis,opus
+Decoders: mp1,mp1float,mp2,mp2float,dca,truehd,vorbis,opus,mpeg1video,mpeg2video
 Parsers: dca
 Bridge: Scripts/ffmpeg-bridge/SpectorFFmpeg.c, exports spector_ffmpeg_* only
 Debug symbols: one dSYM per slice (dSYMs/SpectorFFmpeg.framework.dSYM), paths under /spector-ffmpeg-build
@@ -13,7 +13,7 @@ Configure flags (tvOS arm64):
   --extra-cflags=-target arm64-apple-tvos18.0
   --extra-ldflags=-target arm64-apple-tvos18.0
   --disable-everything
-  --enable-decoder=mp1,mp1float,mp2,mp2float,dca,truehd,vorbis,opus
+  --enable-decoder=mp1,mp1float,mp2,mp2float,dca,truehd,vorbis,opus,mpeg1video,mpeg2video
   --enable-parser=dca
   --disable-autodetect
   --disable-network
