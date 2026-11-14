@@ -10,6 +10,7 @@
 #include <libavutil/error.h>
 #include <libavutil/frame.h>
 #include <libavutil/mem.h>
+#include <libavutil/pixdesc.h>
 
 // The header's channel bits are FFmpeg's.
 _Static_assert(SPECTOR_FFMPEG_CHANNEL_FRONT_LEFT == AV_CH_FRONT_LEFT, "channel bit");
@@ -263,4 +264,188 @@ int spector_ffmpeg_audio_decoder_receive(SpectorFFmpegAudioDecoder *decoder, Spe
 void spector_ffmpeg_audio_decoder_flush(SpectorFFmpegAudioDecoder *decoder) {
     avcodec_flush_buffers(decoder->context);
     decoder->awaits_major_sync = decoder->context->codec_id == AV_CODEC_ID_TRUEHD;
+}
+
+// MARK: Video (ADR 0068)
+
+_Static_assert(SPECTOR_FFMPEG_NO_TIME == AV_NOPTS_VALUE, "no time");
+
+struct SpectorFFmpegVideoDecoder {
+    AVCodecContext *context;
+    AVPacket *packet;
+    // The picture `_receive` returned last, kept until the next call so that
+    // its planes stay valid.
+    AVFrame *frame;
+};
+
+SpectorFFmpegVideoDecoder *spector_ffmpeg_video_decoder_create(
+    SpectorFFmpegVideoCodec codec, const uint8_t *extradata, int32_t extradata_size, int32_t threads) {
+    enum AVCodecID id;
+    switch (codec) {
+    case SpectorFFmpegVideoCodecMPEG1: id = AV_CODEC_ID_MPEG1VIDEO; break;
+    case SpectorFFmpegVideoCodecMPEG2: id = AV_CODEC_ID_MPEG2VIDEO; break;
+    default: return NULL;
+    }
+    if (extradata_size < 0 || (extradata_size > 0 && extradata == NULL) || threads < 1) return NULL;
+    const AVCodec *decoder = avcodec_find_decoder(id);
+    if (decoder == NULL) return NULL;
+    SpectorFFmpegVideoDecoder *result = calloc(1, sizeof(*result));
+    if (result == NULL) return NULL;
+    result->context = avcodec_alloc_context3(decoder);
+    result->packet = av_packet_alloc();
+    result->frame = av_frame_alloc();
+    if (result->context != NULL) {
+        // Slice threads only: a frame thread holds a picture back, which live
+        // cannot afford (ADR 0068).
+        result->context->thread_type = FF_THREAD_SLICE;
+        result->context->thread_count = threads;
+    }
+    if (result->context == NULL || result->packet == NULL || result->frame == NULL
+        || set_extradata(result->context, extradata, extradata_size) != 0
+        || avcodec_open2(result->context, decoder, NULL) != 0) {
+        spector_ffmpeg_video_decoder_free(result);
+        return NULL;
+    }
+    return result;
+}
+
+void spector_ffmpeg_video_decoder_free(SpectorFFmpegVideoDecoder *decoder) {
+    if (decoder == NULL) return;
+    avcodec_free_context(&decoder->context);
+    av_packet_free(&decoder->packet);
+    av_frame_free(&decoder->frame);
+    free(decoder);
+}
+
+int spector_ffmpeg_video_decoder_send(
+    SpectorFFmpegVideoDecoder *decoder, const uint8_t *data, int32_t size, int64_t time) {
+    if (size <= 0 || data == NULL) return AVERROR(EINVAL);
+    int status = av_new_packet(decoder->packet, size);
+    if (status != 0) return status;
+    memcpy(decoder->packet->data, data, (size_t)size);
+    decoder->packet->pts = time;
+    status = avcodec_send_packet(decoder->context, decoder->packet);
+    av_packet_unref(decoder->packet);
+    return status;
+}
+
+int spector_ffmpeg_video_decoder_send_end(SpectorFFmpegVideoDecoder *decoder) {
+    int status = avcodec_send_packet(decoder->context, NULL);
+    return status == AVERROR_EOF ? 0 : status;
+}
+
+int spector_ffmpeg_video_decoder_receive(SpectorFFmpegVideoDecoder *decoder, SpectorFFmpegPicture *picture) {
+    av_frame_unref(decoder->frame);
+    int status = avcodec_receive_frame(decoder->context, decoder->frame);
+    if (status == AVERROR(EAGAIN) || status == AVERROR_EOF) return 0;
+    if (status != 0) return status;
+    const AVFrame *frame = decoder->frame;
+    const AVPixFmtDescriptor *format = av_pix_fmt_desc_get(frame->format);
+    if (format == NULL || format->nb_components != 3 || (format->flags & AV_PIX_FMT_FLAG_PLANAR) == 0
+        || (format->flags & (AV_PIX_FMT_FLAG_RGB | AV_PIX_FMT_FLAG_PAL)) != 0 || format->comp[0].depth != 8
+        || format->log2_chroma_w > 1 || format->log2_chroma_h > 1 || frame->width <= 0 || frame->height <= 0) {
+        av_frame_unref(decoder->frame);
+        return SPECTOR_FFMPEG_ERROR_PIXEL_FORMAT;
+    }
+    *picture = (SpectorFFmpegPicture){0};
+    for (int plane = 0; plane < 3; plane++) {
+        picture->planes[plane] = frame->data[plane];
+        picture->strides[plane] = frame->linesize[plane];
+    }
+    picture->width = frame->width;
+    picture->height = frame->height;
+    picture->chroma_shift_x = format->log2_chroma_w;
+    picture->chroma_shift_y = format->log2_chroma_h;
+    picture->time = frame->pts;
+    picture->rate_numerator = decoder->context->framerate.num;
+    picture->rate_denominator = decoder->context->framerate.den;
+    picture->repeated_half_periods = frame->repeat_pict;
+    picture->aspect_numerator = frame->sample_aspect_ratio.num;
+    picture->aspect_denominator = frame->sample_aspect_ratio.den;
+    picture->colour_primaries = frame->color_primaries;
+    picture->transfer = frame->color_trc;
+    picture->matrix = frame->colorspace;
+    picture->full_range = frame->color_range == AVCOL_RANGE_JPEG;
+    picture->interlaced = (frame->flags & AV_FRAME_FLAG_INTERLACED) != 0;
+    picture->top_field_first = (frame->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST) != 0;
+    picture->key_frame = frame->pict_type == AV_PICTURE_TYPE_I;
+    return 1;
+}
+
+void spector_ffmpeg_video_decoder_flush(SpectorFFmpegVideoDecoder *decoder) {
+    av_frame_unref(decoder->frame);
+    avcodec_flush_buffers(decoder->context);
+}
+
+// Averages two rows of `count` bytes, rounding up as MPEG's chroma filters do.
+static void average_rows(const uint8_t *first, const uint8_t *second, uint8_t *output, int32_t count) {
+    for (int32_t index = 0; index < count; index++) output[index] = (uint8_t)((first[index] + second[index] + 1) >> 1);
+}
+
+// The source chroma row for 4:2:0 row `row` and its partner, where chroma
+// has as many rows as luma (4:2:2, 4:4:4): rows 2r and 2r + 1 for a frame;
+// within each field for an interlaced picture, whose 4:2:0 rows alternate
+// between the fields as its luma rows do.
+static void source_rows(int32_t row, int32_t rows, int interlaced, int32_t *first, int32_t *second) {
+    if (interlaced) {
+        int32_t field = row & 1, pair = row >> 1;
+        *first = pair * 4 + field;
+        *second = *first + 2;
+    } else {
+        *first = row * 2;
+        *second = *first + 1;
+    }
+    if (*first >= rows) *first = rows - 1;
+    if (*second >= rows) *second = *first;
+}
+
+int spector_ffmpeg_picture_copy_biplanar(
+    const SpectorFFmpegPicture *picture, uint8_t *luma, int32_t luma_stride, uint8_t *chroma, int32_t chroma_stride) {
+    int32_t shift_x = picture->chroma_shift_x, shift_y = picture->chroma_shift_y;
+    if (shift_x < 0 || shift_x > 1 || shift_y < 0 || shift_y > 1 || picture->width <= 0 || picture->height <= 0)
+        return SPECTOR_FFMPEG_ERROR_PIXEL_FORMAT;
+    int32_t width = picture->width, height = picture->height;
+    for (int32_t row = 0; row < height; row++)
+        memcpy(luma + (size_t)row * (size_t)luma_stride, picture->planes[0] + (ptrdiff_t)row * picture->strides[0],
+               (size_t)width);
+
+    int32_t pairs = (width + 1) / 2, rows = (height + 1) / 2;
+    int32_t source_width = (width + (1 << shift_x) - 1) >> shift_x;
+    int32_t source_rows_count = (height + (1 << shift_y) - 1) >> shift_y;
+    // A chroma row of each plane, averaged vertically or horizontally where
+    // needed, on the stack (24 KB). MPEG-2's widest level is 1,920 pixels.
+    if (width > 8192) return SPECTOR_FFMPEG_ERROR_PIXEL_FORMAT;
+    uint8_t cb[4096], cr[4096], cb_wide[8192], cr_wide[8192];
+    for (int32_t row = 0; row < rows; row++) {
+        const uint8_t *cb_source, *cr_source;
+        if (shift_y == 1) {
+            cb_source = picture->planes[1] + (ptrdiff_t)row * picture->strides[1];
+            cr_source = picture->planes[2] + (ptrdiff_t)row * picture->strides[2];
+        } else {
+            int32_t first, second;
+            source_rows(row, source_rows_count, picture->interlaced, &first, &second);
+            average_rows(picture->planes[1] + (ptrdiff_t)first * picture->strides[1],
+                         picture->planes[1] + (ptrdiff_t)second * picture->strides[1], cb_wide, source_width);
+            average_rows(picture->planes[2] + (ptrdiff_t)first * picture->strides[2],
+                         picture->planes[2] + (ptrdiff_t)second * picture->strides[2], cr_wide, source_width);
+            cb_source = cb_wide;
+            cr_source = cr_wide;
+        }
+        if (shift_x == 0) {
+            // 4:4:4: average the columns in pairs, the last alone.
+            for (int32_t pair = 0; pair < pairs; pair++) {
+                int32_t left = pair * 2, right = left + 1 < source_width ? left + 1 : left;
+                cb[pair] = (uint8_t)((cb_source[left] + cb_source[right] + 1) >> 1);
+                cr[pair] = (uint8_t)((cr_source[left] + cr_source[right] + 1) >> 1);
+            }
+            cb_source = cb;
+            cr_source = cr;
+        }
+        uint8_t *output = chroma + (size_t)row * (size_t)chroma_stride;
+        for (int32_t pair = 0; pair < pairs; pair++) {
+            output[2 * pair] = cb_source[pair];
+            output[2 * pair + 1] = cr_source[pair];
+        }
+    }
+    return 0;
 }

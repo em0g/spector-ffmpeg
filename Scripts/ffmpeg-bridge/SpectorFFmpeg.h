@@ -134,4 +134,111 @@ SPECTOR_FFMPEG_EXPORT int spector_ffmpeg_audio_decoder_receive(SpectorFFmpegAudi
 /// Drops buffered data, for example after a discontinuity.
 SPECTOR_FFMPEG_EXPORT void spector_ffmpeg_audio_decoder_flush(SpectorFFmpegAudioDecoder *decoder);
 
+// MARK: Video (ADR 0068)
+
+/// The video codecs the engine decodes with FFmpeg: those the platform has
+/// no decoder for (ADR 0034, ADR 0068).
+typedef enum {
+    /// MPEG-1 video (ISO/IEC 11172-2).
+    SpectorFFmpegVideoCodecMPEG1 = 1,
+    /// MPEG-2 video (ISO/IEC 13818-2, H.262), in 4:2:0, 4:2:2 or 4:4:4.
+    SpectorFFmpegVideoCodecMPEG2 = 2,
+} SpectorFFmpegVideoCodec;
+
+/// `spector_ffmpeg_video_decoder_receive` and
+/// `spector_ffmpeg_picture_copy_biplanar` result for a picture that is not
+/// 8-bit planar Y'CbCr, which the bridge does not convert.
+#define SPECTOR_FFMPEG_ERROR_PIXEL_FORMAT (-0x46535058)
+
+/// A packet or picture without a time.
+#define SPECTOR_FFMPEG_NO_TIME INT64_MIN
+
+/// A decoded picture: 8-bit planar Y'CbCr, as FFmpeg's decoder made it.
+typedef struct {
+    /// The Y', Cb and Cr planes, owned by the decoder and valid until its
+    /// next call.
+    const uint8_t *planes[3];
+    /// Bytes from one row of each plane to the next.
+    int32_t strides[3];
+    /// The luma size in pixels.
+    int32_t width;
+    int32_t height;
+    /// How the chroma planes are subsampled, as a power of two: 1 and 1 for
+    /// 4:2:0, 1 and 0 for 4:2:2, 0 and 0 for 4:4:4. A chroma plane is the
+    /// luma size shifted right by these, rounded up.
+    int32_t chroma_shift_x;
+    int32_t chroma_shift_y;
+    /// The time sent with the packet the picture came from, or
+    /// `SPECTOR_FFMPEG_NO_TIME`. Pictures come out in presentation order.
+    int64_t time;
+    /// The sequence's frame rate as a fraction; 0/0 when it names none.
+    int32_t rate_numerator;
+    int32_t rate_denominator;
+    /// How much longer than one frame period the picture is shown, in half
+    /// periods (FFmpeg's `repeat_pict`): 1 for an interlaced picture with
+    /// `repeat_first_field` (3:2 pulldown), 2 or 4 for a progressive
+    /// sequence's doubled or tripled picture, 0 otherwise.
+    int32_t repeated_half_periods;
+    /// The pixel aspect ratio; 0/0 when the stream names none.
+    int32_t aspect_numerator;
+    int32_t aspect_denominator;
+    /// Colour as ITU-T H.273 code points, 2 where the stream says nothing.
+    int32_t colour_primaries;
+    int32_t transfer;
+    int32_t matrix;
+    /// 1 for full range, 0 for video range (MPEG-1 and MPEG-2 are video range).
+    int32_t full_range;
+    /// 1 when the picture is two fields, which `top_field_first` orders.
+    int32_t interlaced;
+    int32_t top_field_first;
+    /// 1 for an intra-coded picture.
+    int32_t key_frame;
+} SpectorFFmpegPicture;
+
+/// An open video decoder. Not thread-safe: one queue uses it at a time.
+typedef struct SpectorFFmpegVideoDecoder SpectorFFmpegVideoDecoder;
+
+/// Returns NULL if FFmpeg has no such decoder or it cannot be opened.
+/// `extradata` is the codec's configuration from the container (Matroska's
+/// CodecPrivate: the sequence header), copied; NULL with size 0 for none.
+/// `threads` is the number of slice threads, at least one; the decoder never
+/// uses frame threads, which hold pictures back (ADR 0068).
+SPECTOR_FFMPEG_EXPORT SpectorFFmpegVideoDecoder *spector_ffmpeg_video_decoder_create(
+    SpectorFFmpegVideoCodec codec, const uint8_t *extradata, int32_t extradata_size, int32_t threads);
+
+/// Frees the decoder; NULL is ignored.
+SPECTOR_FFMPEG_EXPORT void spector_ffmpeg_video_decoder_free(SpectorFFmpegVideoDecoder *decoder);
+
+/// Sends compressed data, a picture or several in a row, with the
+/// presentation time of its first picture, or `SPECTOR_FFMPEG_NO_TIME`.
+/// Returns 0, or a negative FFmpeg error; `AVERROR(EAGAIN)` means pictures
+/// must be received first.
+SPECTOR_FFMPEG_EXPORT int spector_ffmpeg_video_decoder_send(
+    SpectorFFmpegVideoDecoder *decoder, const uint8_t *data, int32_t size, int64_t time);
+
+/// Ends the stream: the pictures the decoder still holds come out of
+/// `_receive`. Flush before sending more.
+SPECTOR_FFMPEG_EXPORT int spector_ffmpeg_video_decoder_send_end(SpectorFFmpegVideoDecoder *decoder);
+
+/// Returns 1 with the next picture in `picture`, 0 when the decoder needs
+/// more input (or an ended stream has no more), or a negative FFmpeg error
+/// (or `SPECTOR_FFMPEG_ERROR_PIXEL_FORMAT`).
+SPECTOR_FFMPEG_EXPORT int spector_ffmpeg_video_decoder_receive(
+    SpectorFFmpegVideoDecoder *decoder, SpectorFFmpegPicture *picture);
+
+/// Drops the pictures held and the references, for example before a seek.
+/// The decoder starts again at the next intra picture.
+SPECTOR_FFMPEG_EXPORT void spector_ffmpeg_video_decoder_flush(SpectorFFmpegVideoDecoder *decoder);
+
+/// Copies `picture` into two-plane 4:2:0 (`420v`, `420f`): its luma rows
+/// into `luma`, and its chroma into `chroma`, Cb and Cr interleaved,
+/// `(width + 1) / 2` pairs a row and `(height + 1) / 2` rows. Chroma with
+/// more rows or columns than that is averaged in pairs; an interlaced
+/// picture's rows are paired within each field. A destination row must
+/// hold `width` bytes (luma) or `2 * ((width + 1) / 2)` bytes (chroma).
+/// Returns 0, or `SPECTOR_FFMPEG_ERROR_PIXEL_FORMAT` for subsampling it does
+/// not convert.
+SPECTOR_FFMPEG_EXPORT int spector_ffmpeg_picture_copy_biplanar(
+    const SpectorFFmpegPicture *picture, uint8_t *luma, int32_t luma_stride, uint8_t *chroma, int32_t chroma_stride);
+
 #endif
