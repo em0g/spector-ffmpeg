@@ -143,6 +143,9 @@ typedef enum {
     SpectorFFmpegVideoCodecMPEG1 = 1,
     /// MPEG-2 video (ISO/IEC 13818-2, H.262), in 4:2:0, 4:2:2 or 4:4:4.
     SpectorFFmpegVideoCodecMPEG2 = 2,
+    /// MPEG-4 Part 2 video (ISO/IEC 14496-2): XviD and DivX, in 4:2:0. Its
+    /// configuration is the stream's headers up to the video object layer.
+    SpectorFFmpegVideoCodecMPEG4 = 3,
 } SpectorFFmpegVideoCodec;
 
 /// `spector_ffmpeg_video_decoder_receive` and

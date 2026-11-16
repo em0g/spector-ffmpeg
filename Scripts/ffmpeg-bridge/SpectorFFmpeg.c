@@ -284,6 +284,7 @@ SpectorFFmpegVideoDecoder *spector_ffmpeg_video_decoder_create(
     switch (codec) {
     case SpectorFFmpegVideoCodecMPEG1: id = AV_CODEC_ID_MPEG1VIDEO; break;
     case SpectorFFmpegVideoCodecMPEG2: id = AV_CODEC_ID_MPEG2VIDEO; break;
+    case SpectorFFmpegVideoCodecMPEG4: id = AV_CODEC_ID_MPEG4; break;
     default: return NULL;
     }
     if (extradata_size < 0 || (extradata_size > 0 && extradata == NULL) || threads < 1) return NULL;
