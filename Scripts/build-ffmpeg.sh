@@ -35,8 +35,10 @@ BUNDLE_ID="app.spector.engine.ffmpeg"
 # carries it. `vorbis` is Vorbis, which tvOS lacks (ADR 0034). `opus` is for
 # Opus with more than two channels, which the Apple TV refuses (ADR 0061).
 # `mpeg1video` and `mpeg2video` are MPEG-1 and MPEG-2 video, which tvOS lacks:
-# the engine's first video decoded in software (ADR 0034, ADR 0068).
-DECODERS="mp1,mp1float,mp2,mp2float,dca,truehd,vorbis,opus,mpeg1video,mpeg2video"
+# the engine's first video decoded in software (ADR 0034, ADR 0068). `mpeg4` is
+# MPEG-4 Part 2 video, XviD and DivX, which the Apple TV's decoder fails on in
+# its Advanced Simple Profile (ADR 0077); it brings FFmpeg's H.263 code with it.
+DECODERS="mp1,mp1float,mp2,mp2float,dca,truehd,vorbis,opus,mpeg1video,mpeg2video,mpeg4"
 # Parsers decode nothing: the bridge asks the `dca` parser for a DTS frame's
 # profile, so that it refuses DTS Express before decoding it (ADR 0034).
 PARSERS="dca"
