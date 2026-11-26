@@ -30,15 +30,22 @@ MACOS_MIN="15.0"
 BUNDLE_ID="app.spector.engine.ffmpeg"
 
 # Every decoder is listed explicitly, and each needs a licensing check before it
-# is added here (ADR 0017). `truehd` is Dolby TrueHD (ADR 0034); its sibling
-# `mlp`, for DVD-Audio's MLP, is left out: no container the engine reads
-# carries it. `vorbis` is Vorbis, which tvOS lacks (ADR 0034). `opus` is for
-# Opus with more than two channels, which the Apple TV refuses (ADR 0061).
+# is added here (ADR 0017). `mp1` and `mp2` are FFmpeg's fixed-point MPEG
+# audio decoders; their float variants, `mp1float` and `mp2float`, are left
+# out: FFmpeg registers the fixed-point ones first, so the bridge, which opens
+# a decoder by its codec, never reached them (#405). `truehd` is Dolby TrueHD
+# (ADR 0034); its sibling `mlp`, for DVD-Audio's MLP, is left out: no
+# container the engine reads carries it. `vorbis` is Vorbis, which tvOS lacks
+# (ADR 0034). `opus` is for Opus with more than two channels, which the Apple
+# TV refuses (ADR 0061).
 # `mpeg1video` and `mpeg2video` are MPEG-1 and MPEG-2 video, which tvOS lacks:
 # the engine's first video decoded in software (ADR 0034, ADR 0068). `mpeg4` is
 # MPEG-4 Part 2 video, XviD and DivX, which the Apple TV's decoder fails on in
 # its Advanced Simple Profile (ADR 0077); it brings FFmpeg's H.263 code with it.
-DECODERS="mp1,mp1float,mp2,mp2float,dca,truehd,vorbis,opus,mpeg1video,mpeg2video,mpeg4"
+# `msmpeg4v3` is Microsoft's MPEG-4 version 3 (`DIV3`, `MP43`) and `mjpeg`
+# Motion JPEG, from AVI files (ADR 0087, step 5), which no Apple platform
+# decodes as AVI stores them.
+DECODERS="mp1,mp2,dca,truehd,vorbis,opus,mpeg1video,mpeg2video,mpeg4,msmpeg4v3,mjpeg"
 # Parsers decode nothing: the bridge asks the `dca` parser for a DTS frame's
 # profile, so that it refuses DTS Express before decoding it (ADR 0034).
 PARSERS="dca"

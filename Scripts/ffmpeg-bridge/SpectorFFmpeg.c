@@ -279,15 +279,19 @@ struct SpectorFFmpegVideoDecoder {
 };
 
 SpectorFFmpegVideoDecoder *spector_ffmpeg_video_decoder_create(
-    SpectorFFmpegVideoCodec codec, const uint8_t *extradata, int32_t extradata_size, int32_t threads) {
+    SpectorFFmpegVideoCodec codec, const uint8_t *extradata, int32_t extradata_size, uint32_t codec_tag,
+    int32_t width, int32_t height, int32_t threads) {
     enum AVCodecID id;
     switch (codec) {
     case SpectorFFmpegVideoCodecMPEG1: id = AV_CODEC_ID_MPEG1VIDEO; break;
     case SpectorFFmpegVideoCodecMPEG2: id = AV_CODEC_ID_MPEG2VIDEO; break;
     case SpectorFFmpegVideoCodecMPEG4: id = AV_CODEC_ID_MPEG4; break;
+    case SpectorFFmpegVideoCodecMSMPEG4V3: id = AV_CODEC_ID_MSMPEG4V3; break;
+    case SpectorFFmpegVideoCodecMJPEG: id = AV_CODEC_ID_MJPEG; break;
     default: return NULL;
     }
-    if (extradata_size < 0 || (extradata_size > 0 && extradata == NULL) || threads < 1) return NULL;
+    if (extradata_size < 0 || (extradata_size > 0 && extradata == NULL) || threads < 1 || width < 0 || height < 0)
+        return NULL;
     const AVCodec *decoder = avcodec_find_decoder(id);
     if (decoder == NULL) return NULL;
     SpectorFFmpegVideoDecoder *result = calloc(1, sizeof(*result));
@@ -300,6 +304,11 @@ SpectorFFmpegVideoDecoder *spector_ffmpeg_video_decoder_create(
         // cannot afford (ADR 0068).
         result->context->thread_type = FF_THREAD_SLICE;
         result->context->thread_count = threads;
+        // What FFmpeg's AVI demuxer gives a decoder from the stream's
+        // BITMAPINFOHEADER.
+        result->context->codec_tag = codec_tag;
+        result->context->width = width;
+        result->context->height = height;
     }
     if (result->context == NULL || result->packet == NULL || result->frame == NULL
         || set_extradata(result->context, extradata, extradata_size) != 0
@@ -369,7 +378,6 @@ int spector_ffmpeg_video_decoder_receive(SpectorFFmpegVideoDecoder *decoder, Spe
     picture->full_range = frame->color_range == AVCOL_RANGE_JPEG;
     picture->interlaced = (frame->flags & AV_FRAME_FLAG_INTERLACED) != 0;
     picture->top_field_first = (frame->flags & AV_FRAME_FLAG_TOP_FIELD_FIRST) != 0;
-    picture->key_frame = frame->pict_type == AV_PICTURE_TYPE_I;
     return 1;
 }
 
