@@ -146,6 +146,15 @@ typedef enum {
     /// MPEG-4 Part 2 video (ISO/IEC 14496-2): XviD and DivX, in 4:2:0. Its
     /// configuration is the stream's headers up to the video object layer.
     SpectorFFmpegVideoCodecMPEG4 = 3,
+    /// Microsoft's MPEG-4 version 3 (`MP43`, `DIV3`), in 4:2:0. Its pictures
+    /// do not say their size: the decoder opens with the container's (ADR
+    /// 0087).
+    SpectorFFmpegVideoCodecMSMPEG4V3 = 4,
+    /// Motion JPEG: a JPEG image a picture, or two for a picture stored as
+    /// its fields, in 4:2:0, 4:2:2, 4:4:4 or 4:4:0, full range. With the
+    /// container's height the decoder tells a field from a frame, and with
+    /// the FourCC (`MJPG`) the order of a field pair (ADR 0087).
+    SpectorFFmpegVideoCodecMJPEG = 5,
 } SpectorFFmpegVideoCodec;
 
 /// `spector_ffmpeg_video_decoder_receive` and
@@ -194,8 +203,6 @@ typedef struct {
     /// 1 when the picture is two fields, which `top_field_first` orders.
     int32_t interlaced;
     int32_t top_field_first;
-    /// 1 for an intra-coded picture.
-    int32_t key_frame;
 } SpectorFFmpegPicture;
 
 /// An open video decoder. Not thread-safe: one queue uses it at a time.
@@ -204,10 +211,14 @@ typedef struct SpectorFFmpegVideoDecoder SpectorFFmpegVideoDecoder;
 /// Returns NULL if FFmpeg has no such decoder or it cannot be opened.
 /// `extradata` is the codec's configuration from the container (Matroska's
 /// CodecPrivate: the sequence header), copied; NULL with size 0 for none.
-/// `threads` is the number of slice threads, at least one; the decoder never
-/// uses frame threads, which hold pictures back (ADR 0068).
+/// `codec_tag` is the container's FourCC (a `BITMAPINFOHEADER`'s
+/// compression, as FFmpeg's `MKTAG` packs it), and `width` and `height` the
+/// picture size it gives; 0 where it gives none. MS-MPEG-4 v3 needs the
+/// size. `threads` is the number of slice threads, at least one; the decoder
+/// never uses frame threads, which hold pictures back (ADR 0068).
 SPECTOR_FFMPEG_EXPORT SpectorFFmpegVideoDecoder *spector_ffmpeg_video_decoder_create(
-    SpectorFFmpegVideoCodec codec, const uint8_t *extradata, int32_t extradata_size, int32_t threads);
+    SpectorFFmpegVideoCodec codec, const uint8_t *extradata, int32_t extradata_size, uint32_t codec_tag,
+    int32_t width, int32_t height, int32_t threads);
 
 /// Frees the decoder; NULL is ignored.
 SPECTOR_FFMPEG_EXPORT void spector_ffmpeg_video_decoder_free(SpectorFFmpegVideoDecoder *decoder);
