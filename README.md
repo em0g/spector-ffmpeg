@@ -1,6 +1,6 @@
 # SPECTOR FFmpeg
 
-The source that SPECTOR's users need to rebuild and replace `SpectorFFmpeg.framework`, the FFmpeg component inside the SPECTOR app for Apple TV.
+The source that SPECTOR's users need to rebuild and replace `SpectorFFmpeg.framework`, the FFmpeg component inside the SPECTOR apps for Apple TV and iPhone.
 
 `SpectorFFmpeg.framework` holds libavcodec, libswresample and libavutil from [FFmpeg](https://ffmpeg.org/) 9.0.2, licensed under the GNU Lesser General Public License version 2.1 or later, linked statically together with a small C bridge (`Scripts/ffmpeg-bridge`). The bridge exports only `spector_ffmpeg_*` functions. The app links the framework dynamically. To meet the LGPL (section 6), this repository publishes the bridge's source and the build script, so you can rebuild the framework with a modified FFmpeg and put it in the app in place of the original.
 
